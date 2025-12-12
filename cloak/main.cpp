@@ -176,7 +176,7 @@ int main(int argc, char** argv)
     std::string output_path = argv[3];
 
     /* Configuration Options */
-    uint32_t sig = argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4], nullptr, 0)) : 0x4d524c41;
+    uint32_t sig = argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4], nullptr, 0)) : 0x4D524C41;
     uint8_t key = argc > 5 ? static_cast<uint8_t>(std::stoul(argv[5], nullptr, 0)) : 0xB3;
 
     if (mode == "craft")
