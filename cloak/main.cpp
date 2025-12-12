@@ -5,6 +5,10 @@
 #include <vector>
 #include <fstream>
 
+/*
+* static uint8_t magic[4] = { 'A', 'L', 'R', 'M' };
+*/
+
 std::vector<uint8_t> read_file(const std::string& path)
 {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -74,7 +78,7 @@ std::vector<uint8_t> xor_cipher(std::vector<uint8_t> data, uint8_t key)
     return data;
 }
 
-int craft_cloak64_v2(const std::string& input_path, const std::string& output_path, uint8_t key)
+int craft_cloak64_v2(const std::string& input_path, const std::string& output_path, uint32_t sig, uint8_t key)
 {
     std::vector<uint8_t> header(0x200, 0x00);
     std::vector<uint8_t> content = read_file(input_path);
@@ -89,19 +93,14 @@ int craft_cloak64_v2(const std::string& input_path, const std::string& output_pa
     uint32_t header_size = static_cast<uint32_t>(header.size());
     uint32_t checksum = crc32(content);
 
-    header[0] = 'A';
-    header[1] = 'L';
-    header[2] = 'R';
-    header[3] = 'M';
+    *reinterpret_cast<uint32_t*>(&header[0]) = sig;
     *reinterpret_cast<uint32_t*>(&header[4]) = content_size;
     *reinterpret_cast<uint32_t*>(&header[8]) = header_size;
     *reinterpret_cast<uint32_t*>(&header[12]) = checksum;
 
     content = xor_cipher(content, key);
 
-    std::vector<uint8_t> result;
-    result.reserve(header.size() + content.size());
-    result.insert(result.end(), header.begin(), header.end());
+    std::vector<uint8_t> result = header;
     result.insert(result.end(), content.begin(), content.end());
 
     if (!write_file(output_path, result))
@@ -111,10 +110,9 @@ int craft_cloak64_v2(const std::string& input_path, const std::string& output_pa
     }
 
     std::cout << "Craft complete. Output written to " << output_path << std::endl;
-
     return 0;
 }
-int uncraft_cloak64_v2(const std::string& input_path, const std::string& output_path, uint8_t key)
+int uncraft_cloak64_v2(const std::string& input_path, const std::string& output_path, uint32_t sig, uint8_t key)
 {
     std::vector<uint8_t> content = read_file(input_path);
 
@@ -130,18 +128,22 @@ int uncraft_cloak64_v2(const std::string& input_path, const std::string& output_
         return -2;
     }
 
-    std::vector<uint8_t> result(content.begin() + 0x200, content.end());
+    if (*reinterpret_cast<uint32_t*>(content.data()) != sig)
+    {
+        std::cerr << "Invalid file format: signature not found." << std::endl;
+        return -3;
+    }
 
+    std::vector<uint8_t> result(content.begin() + 0x200, content.end());
     result = xor_cipher(result, key);
 
     if (!write_file(output_path, result))
     {
         std::cerr << "Failed to write output file: " << output_path << std::endl;
-        return -3;
+        return -4;
     }
 
     std::cout << "Uncraft complete. Output written to " << output_path << std::endl;
-
     return 0;
 }
 
@@ -151,34 +153,39 @@ int main(int argc, char** argv)
     {
         std::cout
             << "Usage:\n"
-            << "  " << argv[0] << " craft <input_file> <output_file> [key]\n"
-            << "  " << argv[0] << " uncraft <input_file> <output_file> [key]\n"
+            << "  " << argv[0] << " craft <input_file> <output_file> [sig] [key]\n"
+            << "  " << argv[0] << " uncraft <input_file> <output_file> [sig] [key]\n"
             << "\n"
             << "Parameters:\n"
             << "  <input_file>   Path to the input file\n"
             << "  <output_file>  Path to the output file\n"
+            << "  [sig]          Optional file signature (default: 0x4D524C41)\n"
             << "  [key]          Optional XOR encryption key (default: 0xB3)\n"
             << "\n"
             << "Examples:\n"
             << "  " << argv[0] << " craft payload.efi cloak64.dat\n"
-            << "  " << argv[0] << " craft payload.efi cloak64.dat 0xAA\n"
+            << "  " << argv[0] << " craft payload.efi cloak64.dat 0x4D524C41 0xB3\n"
             << "  " << argv[0] << " uncraft cloak64.dat restored.efi\n"
-            << "  " << argv[0] << " uncraft cloak64.dat restored.efi 0xAA\n";
+            << "  " << argv[0] << " uncraft cloak64.dat restored.efi 0x4D524C41 0xB3\n";
+
         return 1;
     }
 
     std::string mode = argv[1];
     std::string input_path = argv[2];
     std::string output_path = argv[3];
-    uint8_t key = argc > 4 ? static_cast<uint8_t>(std::stoul(argv[4], nullptr, 0)) : 0xB3;
+
+    /* Configuration Options */
+    uint32_t sig = argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4], nullptr, 0)) : 0x4d524c41;
+    uint8_t key = argc > 5 ? static_cast<uint8_t>(std::stoul(argv[5], nullptr, 0)) : 0xB3;
 
     if (mode == "craft")
     {
-        return craft_cloak64_v2(input_path, output_path, key);
+        return craft_cloak64_v2(input_path, output_path, sig, key);
     }
     else if (mode == "uncraft")
     {
-        return uncraft_cloak64_v2(input_path, output_path, key);
+        return uncraft_cloak64_v2(input_path, output_path, sig, key);
     }
     else
     {
@@ -186,7 +193,7 @@ int main(int argc, char** argv)
             << "Unknown mode: " << mode << "\n"
             << "Valid modes: craft, uncraft\n";
 
-        return -500;
+        return -600;
     }
 
     return 0;
